@@ -1,8 +1,6 @@
 import { config } from "../../config";
+import { callOpenAICompatible } from "./openai-compatible";
 import type { ChatMessage } from "./cerebras";
-
-// HuggingFace Inference API — OpenAI-compatible endpoint
-const BASE_URL = "https://api-inference.huggingface.co/v1";
 
 /**
  * Call HuggingFace Inference API — last resort fallback.
@@ -12,35 +10,15 @@ export async function callHuggingFace(
   messages: ChatMessage[],
   options?: { maxTokens?: number; temperature?: number }
 ): Promise<string> {
-  const key = config.llm.hfKey;
-  if (!key) throw new Error("HF_API_KEY not set");
-
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  return callOpenAICompatible(
+    {
+      baseUrl: "https://api-inference.huggingface.co/v1",
+      apiKey: config.llm.hfKey,
       model: config.llm.hfModel,
-      messages,
-      max_tokens: options?.maxTokens ?? 512,
-      temperature: options?.temperature ?? 0.3,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`HuggingFace error ${res.status}: ${err.slice(0, 120)}`);
-  }
-
-  const data = await res.json() as {
-    choices: Array<{ message: { content: string } }>;
-  };
-
-  const text = data.choices?.[0]?.message?.content;
-  if (!text) throw new Error("HuggingFace returned empty response");
-  return text;
+      providerName: "HuggingFace",
+      timeoutMs: 30000,
+    },
+    messages,
+    { ...options, temperature: options?.temperature ?? 0.3, stream: false }
+  );
 }

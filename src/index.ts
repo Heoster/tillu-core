@@ -224,8 +224,10 @@ process.on("SIGINT", () => {
 });
 
 process.on("uncaughtException", (err) => {
-  logger.error(`[Core] Uncaught exception`, {}, err);
-  process.exit(1);
+  console.error("[Core] Uncaught exception:", err);
+  // Allow logs to flush, then exit — the process is in an undefined state
+  server.close(() => process.exit(1));
+  setTimeout(() => process.exit(1), 3000);
 });
 
 process.on("unhandledRejection", (reason) => {

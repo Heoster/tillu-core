@@ -15,8 +15,7 @@ import type { Skill, SkillStep } from "../types";
 import { emitToUI } from "./presence";
 import { search, formatSearchResult } from "../tools/search.tool";
 import { getNews, getWeather, formatNews, formatWeather } from "../tools/news-weather.tool";
-import { getUpcomingEvents, addEvent, getSchoolSchedule } from "./calendar";
-import type { CalendarEvent } from "../types";
+import { readCalendar, addCalendarEvent } from "./calendar-helpers";
 import { searchMemory, writeMemory, recordSkillFeedback } from "../tools/memory.tool";
 import { speak } from "../tools/voice.tool";
 import { executeAction, isHandsConnected } from "../tools/hands.tool";
@@ -224,38 +223,15 @@ async function executeSkillStep(step: SkillStep, vars: Record<string, unknown>):
     case "calendar": {
       const calAction = params.action as string ?? "read";
       if (calAction === "read") {
-        const filter = params.filter as string ?? "today";
-        if (filter === "exams") {
-          const events = await getUpcomingEvents(365);
-          const exams = events.filter(e => e.title.toLowerCase().includes("exam") || e.title.toLowerCase().includes("board"));
-          const summary = exams.length > 0
-            ? exams.map(e => `${e.title}: ${e.days_remaining} days`).join("; ")
-            : "No upcoming exams";
-          return { summary, items: exams };
-        }
-        const today = new Date().toLocaleDateString("en-US", { weekday: "long" });
-        const schedule = getSchoolSchedule(today);
-        const events = await getUpcomingEvents(filter === "week" ? 7 : 1);
-        const summary = `${today}: ${schedule}. Upcoming: ${events.map(e => e.title).join(", ") || "none"}`;
-        return { summary, schedule, events };
+        return readCalendar(params.filter as string ?? "today");
       } else if (calAction === "add") {
-        const raw = params.event as Record<string, unknown> ?? {};
-        const event: CalendarEvent = {
-          title:    String(raw.title ?? "Untitled"),
-          date:     String(raw.date ?? new Date().toISOString().split("T")[0]),
-          time:     raw.time ? String(raw.time) : undefined,
-          category: (raw.category as CalendarEvent["category"]) ?? "personal",
-          notes:    raw.notes ? String(raw.notes) : undefined,
-        };
-        await addEvent(event);
-        return { saved: true, summary: `Added: ${event.title}` };
+        return addCalendarEvent(params.event as Record<string, unknown> ?? {});
       }
-      return null;
+      throw new Error(`Unknown calendar action: ${calAction}`);
     }
 
     default:
-      console.warn(`[SkillEngine] Unknown step action: ${action}`);
-      return null;
+      throw new Error(`Unknown skill step action: ${action}`);
   }
 }
 

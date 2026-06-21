@@ -5,6 +5,7 @@ import { cosineSimilarity, embedText } from "../embedder";
 import { callGroq } from "../../brain/providers/groq";
 import type { RetrievedChunk } from "../retriever";
 import type { RagResult } from "./memory-rag";
+import { withRagPipeline } from "./rag-helpers";
 
 /** Generate 3 query variants using Groq */
 async function generateQueryVariants(query: string): Promise<string[]> {
@@ -50,25 +51,13 @@ export async function knowledgeRag(
   query: string,
   _context: string
 ): Promise<RagResult> {
-  const start = Date.now();
-
-  try {
+  return withRagPipeline("knowledge-rag", async () => {
     const variants = await generateQueryVariants(query);
     const chunks = await retrieveMultiQuery(variants, { topK: 5, minScore: 0.25, rerank: true });
     const top5 = chunks.slice(0, 5);
     const { context, sources } = formatKnowledgeChunks(top5);
-
-    return {
-      context,
-      sources,
-      pipeline: "knowledge-rag",
-      chunks: top5,
-      latency_ms: Date.now() - start,
-    };
-  } catch (e) {
-    console.error("[RAG] knowledgeRag failed:", (e as Error).message);
-    return { context: "", sources: [], pipeline: "knowledge-rag", chunks: [], latency_ms: Date.now() - start };
-  }
+    return { context, sources, chunks: top5 };
+  });
 }
 
 /** Combine web search results with vector memory, weighted merge */
@@ -80,17 +69,14 @@ export async function hybridKnowledgeRag(
   const start = Date.now();
 
   try {
-    // Run memory retrieval in parallel with embedding the search results
     const [memoryChunks, queryVec] = await Promise.all([
       retrieveMultiQuery([query], { topK: 5, minScore: 0.2, rerank: false }),
       embedText(query).catch(() => [] as number[]),
     ]);
 
-    // Score memory chunks (weight: 0.4, with recency boost)
     const now = Date.now();
     const scoredMemory: RetrievedChunk[] = memoryChunks.map(c => {
       let score = c.score * 0.4;
-      // Recency boost: memories from last 7 days get +0.1
       if (c.created_at) {
         const age = now - new Date(c.created_at).getTime();
         const dayMs = 86400000;
@@ -99,12 +85,10 @@ export async function hybridKnowledgeRag(
       return { ...c, score };
     });
 
-    // Parse search results into pseudo-chunks (weight: 0.6)
     const searchLines = searchResults.split("\n").filter(l => l.trim().length > 30);
     const searchChunks: RetrievedChunk[] = searchLines.slice(0, 5).map((line, i) => {
       let score = 0.6;
       if (queryVec.length > 0) {
-        // We can't embed search results cheaply here, use position-based decay
         score = 0.6 * (1 - i * 0.05);
       }
       return {
@@ -115,7 +99,6 @@ export async function hybridKnowledgeRag(
       };
     });
 
-    // Merge and sort
     const merged = [...searchChunks, ...scoredMemory]
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);

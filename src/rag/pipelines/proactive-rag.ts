@@ -1,9 +1,9 @@
 // ─── Proactive RAG — proactive suggestion pipeline ───────────────────────────
 
 import { retrieve, retrieveMultiQuery } from "../retriever";
-import type { RetrievedChunk } from "../retriever";
 import type { SenseContext } from "../../types";
 import type { RagResult } from "./memory-rag";
+import { withRagPipeline, deduplicateChunks } from "./rag-helpers";
 
 /** Build queries from current sense context */
 function buildContextQueries(senseContext: SenseContext): string[] {
@@ -35,13 +35,11 @@ function buildContextQueries(senseContext: SenseContext): string[] {
 
 /** Retrieve context for proactive suggestions based on current user state */
 export async function proactiveContextRag(senseContext: SenseContext): Promise<RagResult> {
-  const start = Date.now();
-
-  try {
+  return withRagPipeline("proactive-rag", async () => {
     const queries = buildContextQueries(senseContext);
 
     if (queries.length === 0) {
-      return { context: "", sources: [], pipeline: "proactive-rag", chunks: [], latency_ms: Date.now() - start };
+      return { context: "", sources: [], chunks: [] };
     }
 
     const [memoryChunks, eventChunks] = await Promise.all([
@@ -49,21 +47,10 @@ export async function proactiveContextRag(senseContext: SenseContext): Promise<R
       retrieve("upcoming event exam birthday reminder", { topK: 3, minScore: 0.15, type: "event", rerank: false }),
     ]);
 
-    // Deduplicate
-    const seen = new Set<string>();
-    const chunks: RetrievedChunk[] = [];
-    for (const c of [...memoryChunks, ...eventChunks]) {
-      const key = c.id || c.content.slice(0, 40);
-      if (!seen.has(key)) {
-        seen.add(key);
-        chunks.push(c);
-      }
-    }
-
-    const sorted = chunks.sort((a, b) => b.score - a.score).slice(0, 6);
+    const sorted = deduplicateChunks([...memoryChunks, ...eventChunks], 6);
 
     if (sorted.length === 0) {
-      return { context: "", sources: [], pipeline: "proactive-rag", chunks: [], latency_ms: Date.now() - start };
+      return { context: "", sources: [], chunks: [] };
     }
 
     const contextParts: string[] = [
@@ -78,31 +65,23 @@ export async function proactiveContextRag(senseContext: SenseContext): Promise<R
     return {
       context: contextParts.join("\n\n"),
       sources: [...new Set(sources)],
-      pipeline: "proactive-rag",
       chunks: sorted,
-      latency_ms: Date.now() - start,
     };
-  } catch (e) {
-    console.error("[RAG] proactiveContextRag failed:", (e as Error).message);
-    return { context: "", sources: [], pipeline: "proactive-rag", chunks: [], latency_ms: Date.now() - start };
-  }
+  });
 }
 
 /** Find recurring patterns in Heoster's behavior */
 export async function patternRag(pattern: string): Promise<RagResult> {
-  const start = Date.now();
-
-  try {
+  return withRagPipeline("pattern-rag", async () => {
     const chunks = await retrieveMultiQuery(
       [pattern, `recurring ${pattern}`, `habit ${pattern} routine`],
       { topK: 8, minScore: 0.15, rerank: true }
     );
 
     if (chunks.length === 0) {
-      return { context: "", sources: [], pipeline: "pattern-rag", chunks: [], latency_ms: Date.now() - start };
+      return { context: "", sources: [], chunks: [] };
     }
 
-    // Count frequency by content similarity (group similar chunks)
     const patternGroups = new Map<string, number>();
     for (const chunk of chunks) {
       const key = chunk.content.slice(0, 60);
@@ -121,12 +100,7 @@ export async function patternRag(pattern: string): Promise<RagResult> {
     return {
       context: `Pattern analysis for "${pattern}":\n${lines.join("\n")}`,
       sources: [...new Set(sources)],
-      pipeline: "pattern-rag",
       chunks,
-      latency_ms: Date.now() - start,
     };
-  } catch (e) {
-    console.error("[RAG] patternRag failed:", (e as Error).message);
-    return { context: "", sources: [], pipeline: "pattern-rag", chunks: [], latency_ms: Date.now() - start };
-  }
+  });
 }

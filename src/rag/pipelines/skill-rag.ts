@@ -1,34 +1,21 @@
 // ─── Skill RAG — skill and action context pipeline ───────────────────────────
 
 import { retrieve } from "../retriever";
-import type { RetrievedChunk } from "../retriever";
 import type { RagResult } from "./memory-rag";
+import { withRagPipeline, deduplicateChunks } from "./rag-helpers";
 
 /** Retrieve past action logs and skill feedback relevant to the input */
 export async function skillContextRag(userInput: string): Promise<RagResult> {
-  const start = Date.now();
-
-  try {
+  return withRagPipeline("skill-rag", async () => {
     const [actionChunks, skillChunks] = await Promise.all([
       retrieve(userInput, { topK: 4, minScore: 0.2, type: "action_log", rerank: true }),
       retrieve(userInput, { topK: 3, minScore: 0.2, type: "skill_feedback", rerank: false }),
     ]);
 
-    // Deduplicate
-    const seen = new Set<string>();
-    const chunks: RetrievedChunk[] = [];
-    for (const c of [...actionChunks, ...skillChunks]) {
-      const key = c.id || c.content.slice(0, 40);
-      if (!seen.has(key)) {
-        seen.add(key);
-        chunks.push(c);
-      }
-    }
-
-    const sorted = chunks.sort((a, b) => b.score - a.score).slice(0, 6);
+    const sorted = deduplicateChunks([...actionChunks, ...skillChunks], 6);
 
     if (sorted.length === 0) {
-      return { context: "", sources: [], pipeline: "skill-rag", chunks: [], latency_ms: Date.now() - start };
+      return { context: "", sources: [], chunks: [] };
     }
 
     const lines = sorted.map(c => {
@@ -64,21 +51,14 @@ export async function skillContextRag(userInput: string): Promise<RagResult> {
     return {
       context: `Past action context:\n${lines.join("\n")}`,
       sources: [...new Set(sources)],
-      pipeline: "skill-rag",
       chunks: sorted,
-      latency_ms: Date.now() - start,
     };
-  } catch (e) {
-    console.error("[RAG] skillContextRag failed:", (e as Error).message);
-    return { context: "", sources: [], pipeline: "skill-rag", chunks: [], latency_ms: Date.now() - start };
-  }
+  });
 }
 
 /** Retrieve history of a specific action type */
 export async function actionHistoryRag(actionType: string): Promise<RagResult> {
-  const start = Date.now();
-
-  try {
+  return withRagPipeline("action-history-rag", async () => {
     const chunks = await retrieve(actionType, {
       topK: 10,
       minScore: 0.15,
@@ -87,7 +67,7 @@ export async function actionHistoryRag(actionType: string): Promise<RagResult> {
     });
 
     if (chunks.length === 0) {
-      return { context: "", sources: [], pipeline: "action-history-rag", chunks: [], latency_ms: Date.now() - start };
+      return { context: "", sources: [], chunks: [] };
     }
 
     let successCount = 0;
@@ -123,12 +103,7 @@ export async function actionHistoryRag(actionType: string): Promise<RagResult> {
     return {
       context: contextLines.join("\n"),
       sources: ["action_log"],
-      pipeline: "action-history-rag",
       chunks,
-      latency_ms: Date.now() - start,
     };
-  } catch (e) {
-    console.error("[RAG] actionHistoryRag failed:", (e as Error).message);
-    return { context: "", sources: [], pipeline: "action-history-rag", chunks: [], latency_ms: Date.now() - start };
-  }
+  });
 }

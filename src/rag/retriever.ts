@@ -77,7 +77,8 @@ export async function retrieve(
             try {
               const vec = await embedText(c.content);
               return { ...c, score: cosineSimilarity(queryVec, vec) };
-            } catch {
+            } catch (e) {
+              console.warn("[RAG] Chunk re-embed failed, keeping original score:", (e as Error).message);
               return c;
             }
           })
@@ -130,13 +131,15 @@ export async function retrieveMultiQuery(
             try {
               const vec = await embedText(c.content);
               return { ...c, score: cosineSimilarity(queryVec, vec) };
-            } catch {
+            } catch (e) {
+              console.warn("[RAG] Chunk re-embed failed, keeping original score:", (e as Error).message);
               return c;
             }
           })
         );
         return reranked.sort((a, b) => b.score - a.score);
-      } catch {
+      } catch (e) {
+        console.warn("[RAG] Multi-query rerank failed, using original scores:", (e as Error).message);
         return merged.sort((a, b) => b.score - a.score);
       }
     }
@@ -187,8 +190,8 @@ export async function retrieveWithContext(
               expanded.push({ ...nc, score: chunk.score * 0.8 });
             }
           }
-        } catch {
-          // Neighbor fetch is best-effort
+        } catch (e) {
+          console.warn("[RAG] Neighbor chunk fetch failed:", (e as Error).message);
         }
       }
     }

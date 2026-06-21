@@ -101,6 +101,7 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
 
   // ── Stage 3: Execute cloud tools immediately, queue desktop tools ──────────
   const cloudResults: string[] = [];
+  const cloudErrors: string[] = [];
   const desktopSteps: ActionStep[] = [];
 
   for (const tc of planResult.tool_calls) {
@@ -113,7 +114,9 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
         const formatted = formatNews(result);
         if (formatted) cloudResults.push(formatted);
       } catch (e) {
-        console.warn("[Pipeline] News failed:", (e as Error).message);
+        const msg = (e as Error).message;
+        console.warn("[Pipeline] News failed:", msg);
+        cloudErrors.push(`News fetch failed: ${msg.slice(0, 60)}`);
       }
 
     } else if (toolName === "weather") {
@@ -124,7 +127,9 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
         const formatted = formatWeather(result);
         if (formatted) cloudResults.push(formatted);
       } catch (e) {
-        console.warn("[Pipeline] Weather failed:", (e as Error).message);
+        const msg = (e as Error).message;
+        console.warn("[Pipeline] Weather failed:", msg);
+        cloudErrors.push(`Weather fetch failed: ${msg.slice(0, 60)}`);
       }
 
     } else if (toolName === "search") {
@@ -138,7 +143,9 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
         const formatted = formatSearchResult(result);
         if (formatted) cloudResults.push(`[Search: ${tc.params.query}]\n${formatted}`);
       } catch (e) {
-        console.warn("[Pipeline] Search failed after retries:", (e as Error).message);
+        const msg = (e as Error).message;
+        console.warn("[Pipeline] Search failed after retries:", msg);
+        cloudErrors.push(`Search failed: ${msg.slice(0, 60)}`);
       }
 
     } else if (toolName === "memory_read") {
@@ -150,7 +157,9 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
           cloudResults.push(`[Memory: ${tc.params.query}]\n${memText}`);
         }
       } catch (e) {
-        console.warn("[Pipeline] Memory read failed after retries:", (e as Error).message);
+        const msg = (e as Error).message;
+        console.warn("[Pipeline] Memory read failed after retries:", msg);
+        cloudErrors.push(`Memory read failed: ${msg.slice(0, 60)}`);
       }
 
     } else if (toolName === "rag") {
@@ -167,7 +176,9 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
           cloudResults.push(`[RAG: ${ragResult.pipeline}]\n${ragResult.context}`);
         }
       } catch (e) {
-        console.warn("[Pipeline] RAG failed:", (e as Error).message);
+        const msg = (e as Error).message;
+        console.warn("[Pipeline] RAG failed:", msg);
+        cloudErrors.push(`RAG failed: ${msg.slice(0, 60)}`);
       }
 
     } else if (toolName === "see") {
@@ -182,7 +193,9 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
           ));
           if (result.description) cloudResults.push(`[Vision]\n${result.description}`);
         } catch (e) {
-          console.warn("[Pipeline] See failed after retries:", (e as Error).message);
+          const msg = (e as Error).message;
+          console.warn("[Pipeline] See failed after retries:", msg);
+          cloudErrors.push(`Vision failed: ${msg.slice(0, 60)}`);
         }
       }
 
@@ -200,7 +213,10 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
   }
 
   // ── Stage 4: Write with real tool results ──────────────────────────────────
-  const toolResultsText = cloudResults.join("\n\n") || `Context: ${contextSummary}`;
+  let toolResultsText = cloudResults.join("\n\n") || `Context: ${contextSummary}`;
+  if (cloudErrors.length > 0) {
+    toolResultsText += `\n\n[Note: Some tools failed — ${cloudErrors.join("; ")}]`;
+  }
 
   let response: TilluResponse | null = null;
   if (classification.has_response) {

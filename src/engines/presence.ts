@@ -128,7 +128,8 @@ async function triggerWakeUp(): Promise<void> {
     console.log(`[Presence] Wake-Up delivered to ${HEOSTER.nickname}`);
 
     // Run online checks after greeting — birthdays, tracked topics, etc.
-    void runOnlineChecks();
+    runOnlineChecks()
+      .catch(e => console.warn("[Presence] Online checks failed:", (e as Error).message));
   } catch (e) {
     console.error("[Presence] Wake-Up Sequence failed:", (e as Error).message);
     emitToUI({
@@ -178,8 +179,11 @@ export function broadcastStatusUpdate(): void {
       active_model: config.llm.groqModel.split("-").slice(0, 3).join("-"),
       memory_ctx_size: 4096,
     });
-  } catch {
-    // Avoid spamming logs if services aren't fully initialized yet
+  } catch (e) {
+    // Only log once services should be initialized (after first tick)
+    if (_getAliveState) {
+      console.warn("[Presence] Status broadcast failed:", (e as Error).message);
+    }
   }
 }
 

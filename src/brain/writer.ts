@@ -45,7 +45,8 @@ export async function writeWakeUpGreeting(options: {
 
   try {
     return await routeWriter(messages, { maxTokens: 200, temperature: 0.8 });
-  } catch {
+  } catch (e) {
+    console.warn("[Writer] Wake-up greeting generation failed:", (e as Error).message);
     const greetings = { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening", night: "Good night" };
     return `${greetings[timeOfDay]} Heoster! I'm ready whenever you are.`;
   }
@@ -70,7 +71,8 @@ export async function writeMorningBriefing(options: {
 
   try {
     return await routeWriter(messages, { maxTokens: 300, temperature: 0.6 });
-  } catch {
+  } catch (e) {
+    console.warn("[Writer] Morning briefing generation failed:", (e as Error).message);
     return `Good morning Heoster! Here's your briefing: ${options.newsHeadlines.slice(0, 200)}`;
   }
 }
@@ -88,7 +90,8 @@ export async function writeProactiveMessage(options: {
 
   try {
     return await routeWriter(messages, { maxTokens: 150, temperature: 0.8 });
-  } catch {
+  } catch (e) {
+    console.warn("[Writer] Proactive message generation failed:", (e as Error).message);
     return "";
   }
 }

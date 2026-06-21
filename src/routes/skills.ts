@@ -32,8 +32,13 @@ export async function skillsRunHandler(req: Request, res: Response): Promise<voi
   const skill = getSkill(name);
   if (!skill) { res.status(404).json({ error: `Skill not found: ${name}` }); return; }
 
-  const result = await runSkill(name);
-  res.json({ ok: result.success, ...result });
+  try {
+    const result = await runSkill(name);
+    res.json({ ok: result.success, ...result });
+  } catch (e) {
+    console.error(`[Route] /skills/run failed for "${name}":`, (e as Error).message);
+    res.status(500).json({ error: `Skill execution failed: ${(e as Error).message}` });
+  }
 }
 
 /**
@@ -54,10 +59,15 @@ export async function skillsCreateHandler(req: Request, res: Response): Promise<
     return;
   }
 
-  const ok = await createSkillFromVoice(name, trigger, steps, description);
-  if (ok) {
-    res.json({ ok: true, message: `Skill "${name}" created. Say "${trigger}" to use it.` });
-  } else {
-    res.status(500).json({ error: "Failed to create skill — skills directory not configured" });
+  try {
+    const ok = await createSkillFromVoice(name, trigger, steps, description);
+    if (ok) {
+      res.json({ ok: true, message: `Skill "${name}" created. Say "${trigger}" to use it.` });
+    } else {
+      res.status(500).json({ error: "Failed to create skill — skills directory not configured" });
+    }
+  } catch (e) {
+    console.error(`[Route] /skills/create failed for "${name}":`, (e as Error).message);
+    res.status(500).json({ error: `Skill creation failed: ${(e as Error).message}` });
   }
 }

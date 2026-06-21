@@ -21,12 +21,14 @@ export async function messageHandler(req: Request, res: Response): Promise<void>
   const senseCtx = getLatestContext();
 
   // Run loop but don't wait for full completion — return immediately
-  void runAgenticLoop({
+  runAgenticLoop({
     userInput: text,
     contextSummary: ctx.summary || getContextSummary(),
     userState: senseCtx?.user_state,
     sessionId,
     image,
+  }).catch(e => {
+    console.error("[Route] /message agentic loop failed:", (e as Error).message);
   });
 
   res.json({

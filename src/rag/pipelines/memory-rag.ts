@@ -3,6 +3,7 @@
 import { retrieve } from "../retriever";
 import { callGroq } from "../../brain/providers/groq";
 import type { RetrievedChunk } from "../retriever";
+import { withRagPipeline } from "./rag-helpers";
 
 export interface RagResult {
   context: string;
@@ -34,9 +35,7 @@ export async function memoryRag(
   query: string,
   sessionId: string
 ): Promise<RagResult> {
-  const start = Date.now();
-
-  try {
+  return withRagPipeline("memory-rag", async () => {
     const chunks = await retrieve(query, {
       topK: 8,
       minScore: 0.25,
@@ -44,18 +43,8 @@ export async function memoryRag(
     });
 
     const { context, sources } = formatMemoryChunks(chunks);
-
-    return {
-      context,
-      sources,
-      pipeline: "memory-rag",
-      chunks,
-      latency_ms: Date.now() - start,
-    };
-  } catch (e) {
-    console.error("[RAG] memoryRag failed:", (e as Error).message);
-    return { context: "", sources: [], pipeline: "memory-rag", chunks: [], latency_ms: Date.now() - start };
-  }
+    return { context, sources, chunks };
+  });
 }
 
 /** Rewrite query using Groq to expand it, then run memoryRag */

@@ -16,7 +16,8 @@ function parseToolCalls(raw: string): ToolCall[] {
       params: (item.params ?? item.arguments ?? {}) as Record<string, unknown>,
       reason: item.reason as string | undefined,
     }));
-  } catch {
+  } catch (e) {
+    console.warn("[Planner] Failed to parse tool calls from LLM output:", (e as Error).message);
     return [];
   }
 }

@@ -1,4 +1,10 @@
 import { config } from "../../config";
+import {
+  callOpenAICompatible,
+  verifyProvider,
+  type OpenAICompatibleConfig,
+  type VerifyResult,
+} from "./openai-compatible";
 
 const BASE_URL = "https://api.cerebras.ai/v1";
 
@@ -32,6 +38,17 @@ function getModel(): string {
   return model;
 }
 
+function getCerebrasConfig(): OpenAICompatibleConfig {
+  return {
+    baseUrl: BASE_URL,
+    apiKey: config.llm.cerebrasKey,
+    model: getModel(),
+    providerName: "Cerebras",
+    timeoutMs: 10000,
+    supportsReasoning: true,
+  };
+}
+
 /**
  * Call Cerebras GLM-4-9B — primary classifier.
  * Fastest free inference. Used for Stage 1 classification.
@@ -40,92 +57,12 @@ export async function callCerebras(
   messages: ChatMessage[],
   options?: { maxTokens?: number; temperature?: number; jsonMode?: boolean }
 ): Promise<string> {
-  const key = config.llm.cerebrasKey;
-  if (!key) throw new Error("CEREBRAS_API_KEY not set");
-
-  const model = getModel();
-
-  const body: Record<string, unknown> = {
-    model,
-    messages,
-    max_tokens: options?.maxTokens ?? 512,
-    temperature: options?.temperature ?? 0.1,
-  };
-
-  if (options?.jsonMode) {
-    body.response_format = { type: "json_object" };
-  }
-
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Cerebras error ${res.status}: ${err.slice(0, 120)}`);
-  }
-
-  const data = await res.json() as {
-    choices: Array<{ message: { content?: string; reasoning?: string } }>;
-  };
-
-  // Both zai-glm-4.7 and gpt-oss-120b are reasoning models —
-  // they put output in message.reasoning when content is empty
-  const choice = data.choices?.[0]?.message;
-  const text = choice?.content || choice?.reasoning;
-  if (!text) throw new Error("Cerebras returned empty response");
-  return text;
+  return callOpenAICompatible(getCerebrasConfig(), messages, options);
 }
 
 /**
  * Verify Cerebras API key and model are working.
  */
-export async function verifyCerebras(): Promise<{
-  ok: boolean;
-  model: string;
-  latency_ms: number;
-  error?: string;
-}> {
-  const key = config.llm.cerebrasKey;
-  if (!key) {
-    return { ok: false, model: CEREBRAS_DEFAULT_MODEL, latency_ms: 0, error: "CEREBRAS_API_KEY not set" };
-  }
-
-  const model = getModel();
-  const start = Date.now();
-
-  try {
-    const res = await fetch(`${BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: "Reply with the single word: ok" }],
-        max_tokens: 5,
-        temperature: 0,
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      return { ok: false, model, latency_ms: Date.now() - start, error: `${res.status}: ${err.slice(0, 100)}` };
-    }
-
-    const data = await res.json() as { choices: Array<{ message: { content?: string; reasoning?: string } }> };
-    const choice = data.choices?.[0]?.message;
-    const reply = choice?.content || choice?.reasoning || "";
-    return { ok: !!reply, model, latency_ms: Date.now() - start };
-  } catch (e) {
-    return { ok: false, model, latency_ms: Date.now() - start, error: (e as Error).message.slice(0, 80) };
-  }
+export async function verifyCerebras(): Promise<VerifyResult> {
+  return verifyProvider(getCerebrasConfig());
 }

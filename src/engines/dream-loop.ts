@@ -144,7 +144,8 @@ async function runWorldMonitor(): Promise<void> {
         const topicMemories = await searchMemory("tracked topics interests", 3) as Array<{ content: string }>;
         topics = topicMemories.map((m) => m.content).join(", ") || topics;
       }
-    } catch {
+    } catch (e) {
+      console.warn("[DreamLoop] RAG topic discovery failed, falling back to memory search:", (e as Error).message);
       const topicMemories = await searchMemory("tracked topics interests", 3) as Array<{ content: string }>;
       topics = topicMemories.map((m) => m.content).join(", ") || topics;
     }

@@ -3,8 +3,8 @@
 import axios from "axios";
 import { config } from "../../config";
 import { retrieve } from "../retriever";
-import type { RetrievedChunk } from "../retriever";
 import type { RagResult } from "./memory-rag";
+import { withRagPipeline, deduplicateChunks } from "./rag-helpers";
 
 const USER_ID = config.heoster.userId;
 
@@ -13,30 +13,16 @@ export async function conversationRag(
   currentMessage: string,
   sessionId: string
 ): Promise<RagResult> {
-  const start = Date.now();
-
-  try {
-    // Retrieve past conversations and events
+  return withRagPipeline("conversation-rag", async () => {
     const [summaryChunks, eventChunks] = await Promise.all([
       retrieve(currentMessage, { topK: 4, minScore: 0.2, type: "summary", rerank: true }),
       retrieve(currentMessage, { topK: 3, minScore: 0.2, type: "event", rerank: false }),
     ]);
 
-    // Deduplicate
-    const seen = new Set<string>();
-    const chunks: RetrievedChunk[] = [];
-    for (const c of [...summaryChunks, ...eventChunks]) {
-      const key = c.id || c.content.slice(0, 40);
-      if (!seen.has(key)) {
-        seen.add(key);
-        chunks.push(c);
-      }
-    }
-
-    const sorted = chunks.sort((a, b) => b.score - a.score).slice(0, 6);
+    const sorted = deduplicateChunks([...summaryChunks, ...eventChunks], 6);
 
     if (sorted.length === 0) {
-      return { context: "", sources: [], pipeline: "conversation-rag", chunks: [], latency_ms: Date.now() - start };
+      return { context: "", sources: [], chunks: [] };
     }
 
     const lines = sorted.map(c => {
@@ -51,14 +37,9 @@ export async function conversationRag(
     return {
       context: `Past relevant conversations:\n${lines.join("\n")}`,
       sources: [...new Set(sources)],
-      pipeline: "conversation-rag",
       chunks: sorted,
-      latency_ms: Date.now() - start,
     };
-  } catch (e) {
-    console.error("[RAG] conversationRag failed:", (e as Error).message);
-    return { context: "", sources: [], pipeline: "conversation-rag", chunks: [], latency_ms: Date.now() - start };
-  }
+  });
 }
 
 /** Fetch last N messages from working memory and format as conversation history */

@@ -4,6 +4,7 @@ import { retrieve, retrieveWithContext } from "../retriever";
 import { callGroq } from "../../brain/providers/groq";
 import type { RetrievedChunk } from "../retriever";
 import type { RagResult } from "./memory-rag";
+import { withRagPipeline } from "./rag-helpers";
 
 function formatDocumentChunks(chunks: RetrievedChunk[]): { context: string; sources: string[] } {
   if (chunks.length === 0) return { context: "", sources: [] };
@@ -43,17 +44,13 @@ export async function documentRag(
   query: string,
   documentId?: string
 ): Promise<RagResult> {
-  const start = Date.now();
-
-  try {
+  return withRagPipeline("document-rag", async () => {
     let chunks: RetrievedChunk[];
 
     if (documentId) {
-      // Retrieve from specific document using context window
       const raw = await retrieveWithContext(query, 1);
       chunks = raw.filter(c => c.source_session_id === documentId);
 
-      // Fallback: if no chunks match the documentId, try general retrieval
       if (chunks.length === 0) {
         chunks = await retrieve(query, { topK: 5, minScore: 0.2, rerank: true });
         chunks = chunks.filter(c => c.source_session_id === documentId);
@@ -64,18 +61,8 @@ export async function documentRag(
 
     const top = chunks.slice(0, 5);
     const { context, sources } = formatDocumentChunks(top);
-
-    return {
-      context,
-      sources,
-      pipeline: "document-rag",
-      chunks: top,
-      latency_ms: Date.now() - start,
-    };
-  } catch (e) {
-    console.error("[RAG] documentRag failed:", (e as Error).message);
-    return { context: "", sources: [], pipeline: "document-rag", chunks: [], latency_ms: Date.now() - start };
-  }
+    return { context, sources, chunks: top };
+  });
 }
 
 /** Run documentRag then answer the question using Groq */
